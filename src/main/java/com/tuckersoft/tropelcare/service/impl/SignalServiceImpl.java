@@ -50,15 +50,19 @@ public class SignalServiceImpl implements SignalService {
     @Transactional
     public SignalResponse create(CreateSignalRequest req) {
         Tropel tropel = tropelRepository.findById(req.getTropelId())
-                .orElseThrow(() -> new ResourceNotFoundException("No existe un Tropel con id " + req.getTropelId()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No existe un Tropel con id " + req.getTropelId()));
         Guardian guardian = guardianRepository.findById(req.getGuardianId())
-                .orElseThrow(() -> new ResourceNotFoundException("No existe un guardián con id " + req.getGuardianId()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No existe un guardián con id " + req.getGuardianId()));
 
         if (!tropel.getGuardian().getId().equals(req.getGuardianId())) {
-            throw new BadRequestException("El guardianId no corresponde al guardián responsable de este Tropel");
+            throw new BadRequestException(
+                    "El guardianId no corresponde al guardián responsable de este Tropel");
         }
 
-        Optional<GithubModelsClient.ClassificationResult> aiResult = githubModelsClient.classify(req.getRawContent());
+        Optional<GithubModelsClient.ClassificationResult> aiResult =
+                githubModelsClient.classify(req.getRawContent());
 
         Instant now = Instant.now();
 
@@ -68,14 +72,16 @@ public class SignalServiceImpl implements SignalService {
                     "Archivar la señal y revisar manualmente si se repite.",
                     "ERROR", null, now);
             signalRepository.save(signal);
-            createCareResponse(signal, "SENAL_CORRUPTA", "Archivar la señal y revisar manualmente si se repite.", now);
+            createCareResponse(signal,
+                    "SENAL_CORRUPTA",
+                    "Archivar la señal y revisar manualmente si se repite.",
+                    now);
             return toResponse(signal);
         }
 
         GithubModelsClient.ClassificationResult result = aiResult.get();
 
         updateTropelStats(tropel, result.severity());
-
         updateSectorStability(tropel.getSector(), result.signalType());
 
         tropelRepository.save(tropel);
@@ -90,14 +96,13 @@ public class SignalServiceImpl implements SignalService {
 
         eventPublisher.publishEvent(new TropelSignalCreatedEvent(this, signal.getId()));
 
-        log.info("[TROPEL-LOG] Thread: {} - Señal {} creada exitosamente", Thread.currentThread().getName(), signal.getId());
-
         return toResponse(signal);
     }
 
     private TropelSignal buildSignal(CreateSignalRequest req, Tropel tropel, Guardian guardian,
                                      String signalType, String severity, String assignedUnit,
-                                     String recommendedAction, String status, String personalityNote, Instant now) {
+                                     String recommendedAction, String status,
+                                     String personalityNote, Instant now) {
         TropelSignal signal = new TropelSignal();
         signal.setTropel(tropel);
         signal.setGuardian(guardian);
@@ -114,7 +119,8 @@ public class SignalServiceImpl implements SignalService {
         return signal;
     }
 
-    private void createCareResponse(TropelSignal signal, String signalType, String description, Instant now) {
+    private void createCareResponse(TropelSignal signal, String signalType,
+                                    String description, Instant now) {
         CareResponse care = new CareResponse();
         care.setSignal(signal);
         care.setResponseCode(RESPONSE_CODE_MAP.getOrDefault(signalType, "ARCHIVE_AND_IGNORE"));
@@ -125,18 +131,18 @@ public class SignalServiceImpl implements SignalService {
 
     private void updateTropelStats(Tropel tropel, String severity) {
         int energyDelta = switch (severity) {
-            case "LEVE" -> -5;
+            case "LEVE"     -> -5;
             case "MODERADO" -> -10;
-            case "GRAVE" -> -20;
-            case "CRITICO" -> -30;
-            default -> 0;
+            case "GRAVE"    -> -20;
+            case "CRITICO"  -> -30;
+            default         -> 0;
         };
         int chaosDelta = switch (severity) {
-            case "LEVE" -> 5;
+            case "LEVE"     -> 5;
             case "MODERADO" -> 15;
-            case "GRAVE" -> 30;
-            case "CRITICO" -> 45;
-            default -> 0;
+            case "GRAVE"    -> 30;
+            case "CRITICO"  -> 45;
+            default         -> 0;
         };
         int mutationDelta = "CRITICO".equals(severity) ? 1 : 0;
 
@@ -153,6 +159,7 @@ public class SignalServiceImpl implements SignalService {
         } else if ("GRAVE".equals(severity)) {
             tropel.setVitalState("AGITADO");
         }
+
         tropel.setUpdatedAt(Instant.now());
     }
 
@@ -165,8 +172,11 @@ public class SignalServiceImpl implements SignalService {
     }
 
     @Override
-    public PagedResponse<SignalResponse> findAll(Long tropelId, String signalType, String status, Pageable pageable) {
-        Page<TropelSignal> page = signalRepository.findWithFilters(tropelId, signalType, status, pageable);
+    public PagedResponse<SignalResponse> findAll(Long tropelId, String signalType,
+                                                  String severity, Long guardianId,
+                                                  String status, Pageable pageable) {
+        Page<TropelSignal> page = signalRepository.findWithFilters(
+                tropelId, signalType, severity, guardianId, status, pageable);
         return PagedResponse.<SignalResponse>builder()
                 .content(page.getContent().stream().map(this::toResponse).collect(Collectors.toList()))
                 .totalElements(page.getTotalElements())
